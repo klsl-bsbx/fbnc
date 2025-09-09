@@ -43,10 +43,28 @@ Run the subspace-aware GNN imputation algorithm using the command line:
 python run_subspace_gnn.py --input data/datasets/your_dataset.mat --treat_zeros
 ```
 Adding --auto_cluster to the command automatically performs subspace clustering on the imputed dataset after imputation.
-python run_subspace_gnn.py --input data/datasets/ORL_32x32_zeroed.mat --treat_zeros --epochs 300 --alpha 0.95 --k 30 --auto_cluster
-To perform subspace clustering directly, run:
-python subspace_cluster.py --data coil100_zeroed
-python subspace_cluster.py --data orl_zeroed
+python run_subspace_gnn.py --input data/datasets/ORL_32x32_zeroed.mat --treat_zeros --epochs 300 --alpha 0.98 --k 30 --auto_cluster
+To perform subspace clustering directly, run:<br>
+Subspace clustering of the COIL100 dataset with a missing rate of 10%: <br>
+python subspace_cluster.py --data coil100_zeroed_subspace_gnn_imputed<br>
+Subspace clustering of the COIL100 dataset with a missing rate of 20%: <br>
+python subspace_cluster.py --data coil100_zeroed_20_subspace_gnn_imputed<br>
+Subspace clustering of the COIL100 dataset with a missing rate of 30%: <br>
+python subspace_cluster.py --data coil100_zeroed_30_subspace_gnn_imputed<br>
+Subspace clustering of the COIL100 dataset with a missing rate of 40%: <br>
+python subspace_cluster.py --data coil100_zeroed_40_subspace_gnn_imputed<br>
+Subspace clustering of the COIL100 dataset with a missing rate of 50%: <br>
+python subspace_cluster.py --data coil100_zeroed_50_subspace_gnn_imputed<br>
+Subspace clustering of the ORL_32x32 dataset with a missing rate of 10%: <br>
+python subspace_cluster.py --data orl_zeroed_subspace_gnn_imputed<br>
+Subspace clustering of the ORL_32x32 dataset with a missing rate of 20%: <br>
+python subspace_cluster.py --data orl_zeroed_20_subspace_gnn_imputed<br>
+Subspace clustering of the ORL_32x32 dataset with a missing rate of 30%: <br>
+python subspace_cluster.py --data orl_zeroed_30_subspace_gnn_imputed<br>
+Subspace clustering of the ORL_32x32 dataset with a missing rate of 40%: <br>
+python subspace_cluster.py --data orl_zeroed_40_subspace_gnn_imputed<br>
+Subspace clustering of the ORL_32x32 dataset with a missing rate of 50%: <br>
+python subspace_cluster.py --data orl_zeroed_50_subspace_gnn_imputed<br>
 ### Parameter Description
 
 - `--input`: Input .mat file path (required)
@@ -73,10 +91,26 @@ The algorithm accepts .mat format data files, which should contain the following
 
 
 
-For the COIL00 dataset with a 10% missingness ratio, the optimal command is:
-python run_subspace_gnn.py --input data/datasets/COIL100_zeroed.mat --treat_zeros --epochs 350 --alpha 0.95 --k 30 --auto_cluster
-For the ORL_32x32 dataset with a 10% missingness ratio, the optimal command is:
-python run_subspace_gnn.py --input data/datasets/ORL_32x32_zeroed.mat --treat_zeros --epochs 300
---alpha 0.95 --k 5 --auto_cluster
+For the COIL00 dataset with a 10% missingness ratio, the optimal command is: <br>
+python run_subspace_gnn.py --input data/datasets/COIL100_zeroed.mat --treat_zeros --epochs 350 --alpha 0.98 --k 30 --auto_cluster<br>
+For the COIL00 dataset with a 20% missingness ratio, the optimal command is: <br>
+python run_subspace_gnn.py --input data/datasets/COIL100_zeroed_20.mat --treat_zeros --epochs 350 --alpha 0.98 --k 30 --auto_cluster<br>
+For the COIL00 dataset with a 30% missingness ratio, the optimal command is: <br>
+python run_subspace_gnn.py --input data/datasets/COIL100_zeroed_30.mat --treat_zeros --epochs 350 --alpha 0.98 --k 30 --auto_cluster<br>
+For the COIL00 dataset with a 40% missingness ratio, the optimal command is: <br>
+python run_subspace_gnn.py --input data/datasets/COIL100_zeroed_40.mat --treat_zeros --epochs 350 --alpha 0.98 --k 30 --auto_cluster<br>
+For the COIL00 dataset with a 50% missingness ratio, the optimal command is: <br>
+python run_subspace_gnn.py --input data/datasets/COIL100_zeroed_50.mat --treat_zeros --epochs 350 --alpha 0.98 --k 30 --auto_cluster<br>
+
+For the ORL_32x32 dataset with a 10% missingness ratio, the optimal command is: <br>
+python run_subspace_gnn.py --input data/datasets/ORL_32x32_zeroed.mat --treat_zeros --epochs 300 --alpha 0.98 --k 5 --auto_cluster<br>
+For the ORL_32x32 dataset with a 20% missingness ratio, the optimal command is: <br>
+python run_subspace_gnn.py --input data/datasets/ORL_32x32_zeroed_20.mat --treat_zeros --epochs 300 --alpha 0.98 --k 5 --auto_cluster<br>
+For the ORL_32x32 dataset with a 30% missingness ratio, the optimal command is: <br>
+python run_subspace_gnn.py --input data/datasets/ORL_32x32_zeroed_30.mat --treat_zeros --epochs 300 --alpha 0.98 --k 5 --auto_cluster<br>
+For the ORL_32x32 dataset with a 40% missingness ratio, the optimal command is: <br>
+python run_subspace_gnn.py --input data/datasets/ORL_32x32_zeroed_40.mat --treat_zeros --epochs 300 --alpha 0.98 --k 5 --auto_cluster<br>
+For the ORL_32x32 dataset with a 50% missingness ratio, the optimal command is: <br>
+python run_subspace_gnn.py --input data/datasets/ORL_32x32_zeroed_50.mat --treat_zeros --epochs 300 --alpha 0.98 --k 5 --auto_cluster<br>
 Start TendorBoard:
 tensorboard --logdir=exps --port=6006 --reload_multifile=true --reload_interval=60 --load_fast=false
