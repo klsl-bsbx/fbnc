@@ -18,30 +18,31 @@ from functools import reduce
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"使用设备: {device}")
+print(f"Using device: {device}")
 
 
 if torch.cuda.is_available():
     torch.cuda.empty_cache()
     torch.backends.cudnn.benchmark = True
-    print(f"当前CUDA设备: {torch.cuda.get_device_name(0)}")
-    print(f"可用GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+    print(f"Current CUDA device: {torch.cuda.get_device_name(0)}")
+    print(f"Available GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 
 
 def timer(func):
     def wrapper(*args, **kwargs):
         start_time = time.time()
-        print(f"开始执行 {func.__name__}...")
+        print(f"Starting execution of {func.__name__}...")
         result = func(*args, **kwargs)
         end_time = time.time()
-        print(f"{func.__name__} 执行完成，耗时: {end_time - start_time:.2f} 秒")
+        print(f"{func.__name__} finished, elapsed time: {end_time - start_time:.2f} seconds")
         return result
     return wrapper
 
 class SubspaceAwareGNNLayer(nn.Module):
     """
-    子空间感知的图神经网络（GNN）层。
-    这个自定义层可以为数据中不同的子空间（例如，不同的类别）学习不同的变换权重
+    Subspace-aware Graph Neural Network (GNN) layer.
+    This custom layer can learn different transformation weights for different subspaces
+    (e.g., different classes) within the data.
     """
     def __init__(self, in_features, out_features, n_subspaces=None):
         super(SubspaceAwareGNNLayer, self).__init__()
@@ -49,7 +50,7 @@ class SubspaceAwareGNNLayer(nn.Module):
         self.out_features = out_features
         self.n_subspaces = n_subspaces if n_subspaces is not None else 1
         
-        # 为每个子空间创建一个权重矩阵
+        # Create a weight matrix for each subspace
         if self.n_subspaces > 1:
             self.weights = nn.Parameter(torch.FloatTensor(self.n_subspaces, in_features, out_features))
         else:
@@ -67,34 +68,34 @@ class SubspaceAwareGNNLayer(nn.Module):
     def forward(self, input_features, adj, subspace_labels=None):
         
         if self.n_subspaces > 1 and subspace_labels is not None:
-            # 子空间感知模式
+            # Subspace-aware mode
             output = torch.zeros(input_features.shape[0], self.out_features, device=input_features.device)
             
-            # 为每个子空间单独处理
+            # Process each subspace separately
             for s in range(self.n_subspaces):
-                # 获取当前子空间的样本掩码
+                # Get the sample mask for the current subspace
                 mask = (subspace_labels == s)
                 if not torch.any(mask):
                     continue
                     
-                # 获取当前子空间的样本
+                # Get the samples for the current subspace
                 subspace_features = input_features[mask]
                 
-                # 应用当前子空间的权重
+                # Apply the weights for the current subspace
                 support = torch.mm(subspace_features, self.weights[s])
                 
-                # 修改邻接矩阵，只保留子空间内的连接
+                # Modify the adjacency matrix to only keep connections within the subspace
                 subspace_adj = adj[mask][:, mask]
                 
-                # 图卷积操作
+                # Graph convolution operation
                 subspace_output = torch.spmm(subspace_adj, support)
                 
-                # 将结果放回原始输出
+                # Put the results back into the original output
                 output[mask] = subspace_output
                 
             return output
         else:
-            # 标准GNN模式
+            # Standard GNN mode
             if self.n_subspaces > 1:
                 
                 support = torch.mm(input_features, self.weights[0])
@@ -107,7 +108,7 @@ class SubspaceAwareGNNLayer(nn.Module):
 
 class SubspaceAwareGNN(nn.Module):
     """
-    子空间感知的图神经网络模型
+    Subspace-aware Graph Neural Network model
     """
     def __init__(self, input_dim, hidden_dims=[1024, 512, 256], output_dim=None, n_subspaces=None):
         super(SubspaceAwareGNN, self).__init__()
@@ -117,17 +118,17 @@ class SubspaceAwareGNN(nn.Module):
         if output_dim is None:
             output_dim = input_dim
         
-        # 构建GNN层
+        # Build GNN layers
         self.layers = nn.ModuleList()
         prev_dim = input_dim
         for hidden_dim in hidden_dims:
             self.layers.append(SubspaceAwareGNNLayer(prev_dim, hidden_dim, self.n_subspaces))
             prev_dim = hidden_dim
         
-        # 输出层
+        # Output layer
         self.output_layer = SubspaceAwareGNNLayer(prev_dim, output_dim, self.n_subspaces)
         
-        # 预测层 - 为每个子空间创建一个预测器
+        # Prediction layer - create a predictor for each subspace
         if self.n_subspaces > 1:
             self.predictors = nn.ModuleList()
             for _ in range(self.n_subspaces):
@@ -145,7 +146,7 @@ class SubspaceAwareGNN(nn.Module):
         
     def forward(self, x, adj, subspace_labels=None):
         
-        # 编码
+        # Encode
         h = x
         for layer in self.layers:
             h = F.relu(layer(h, adj, subspace_labels))
@@ -154,9 +155,9 @@ class SubspaceAwareGNN(nn.Module):
        
         h = self.output_layer(h, adj, subspace_labels)
         
-        # 预测原始特征
+        # Predict original features
         if self.n_subspaces > 1 and subspace_labels is not None:
-            # 为每个子空间使用不同的预测器
+            # Use a different predictor for each subspace
             output = torch.zeros_like(x)
             for s in range(self.n_subspaces):
                 mask = (subspace_labels == s)
@@ -172,21 +173,21 @@ class SubspaceAwareGNN(nn.Module):
 
 
 def ensure_no_missing(data_filled):
-    """确保数据没有缺失值"""
+    """Ensure data has no missing values"""
     still_missing = np.isnan(data_filled)
     if np.any(still_missing):
-        print(f"填补后仍有 {np.sum(still_missing)} 个缺失值，应用最终填补")
+        print(f"Still {np.sum(still_missing)} missing values after imputation, applying final fill.")
         
-        # 复制数据以避免修改原始数据
+        # Copy data to avoid modifying the original
         result = np.copy(data_filled)
         
-        # 对每列单独处理
+        # Process each column separately
         for i in range(result.shape[1]):
             col_mask = np.isnan(result[:, i])
             if np.any(col_mask):
-                # 尝试使用列均值
+                # Try using column mean
                 col_mean = np.nanmean(result[:, i])
-                if np.isnan(col_mean):  # 整列都是NaN
+                if np.isnan(col_mean):  # Entire column is NaN
                     col_mean = 0
                 result[col_mask, i] = col_mean
         
@@ -195,33 +196,33 @@ def ensure_no_missing(data_filled):
 
 def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, similarity_threshold=0.9, batch_size=1000):
     """
-    构建子空间感知的图，基于特征相似度加权连接同标签样本
+    Builds a subspace-aware graph, weighting connections between same-label samples based on feature similarity.
     """
     from sklearn.neighbors import kneighbors_graph
     from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
     
-    # 处理缺失值，用于计算距离
+    # Handle missing values for distance calculation
     mask = ~np.isnan(data)
     
-    # 使用MICE进行填补
+    # Impute using MICE
     try:
         from sklearn.experimental import enable_iterative_imputer
         from sklearn.impute import IterativeImputer
         import warnings
         warnings.filterwarnings("ignore")
         
-        print("为图构建准备数据...")
-        # 根据数据维度和子空间特性动态调整
-        if data.shape[1] > 1000:  # 高维数据
+        print("Preparing data for graph construction...")
+        # Dynamically adjust based on data dimension and subspace characteristics
+        if data.shape[1] > 1000:  # High-dimensional data
             n_nearest = min(50, data.shape[1]//20)
-        elif data.shape[1] > 100:  # 中等维度
+        elif data.shape[1] > 100:  # Medium-dimensional
             n_nearest = min(30, data.shape[1]//5)
-        else:  # 低维数据
-            n_nearest = None  # 使用所有特征
+        else:  # Low-dimensional
+            n_nearest = None  # Use all features
 
-        print(f"使用n_nearest_features={n_nearest}进行MICE填补")
+        print(f"Using n_nearest_features={n_nearest} for MICE imputation")
         
-        # 创建MICE填补器
+        # Create MICE imputer
         mice_imputer = IterativeImputer(
             max_iter=5000,
             random_state=42,
@@ -229,33 +230,33 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
             n_nearest_features=n_nearest
         )
         
-        # 使用MICE填补
-        print("使用MICE填补数据以构建图...")
+        # Impute using MICE
+        print("Imputing data with MICE for graph construction...")
         start_time = time.time()
         
-        # 检查是否有有效标签，如果有则按子空间进行填补
+        # Check for valid labels, if any, impute by subspace
         if labels is not None and not np.all(np.isnan(labels)):
-            print("检测到有效标签，按子空间进行MICE填补...")
+            print("Valid labels detected, performing MICE imputation by subspace...")
             data_filled = np.copy(data)
             
-            # 获取有效标签
+            # Get valid labels
             valid_mask = ~np.isnan(labels)
             valid_labels = labels[valid_mask]
             
-            # 获取唯一标签（子空间）
+            # Get unique labels (subspaces)
             unique_labels = np.unique(valid_labels)
-            print(f"检测到 {len(unique_labels)} 个子空间")
+            print(f"Detected {len(unique_labels)} subspaces")
             
-            # 统计每个子空间的样本数
+            # Count samples in each subspace
             subspace_counts = {}
             for label in unique_labels:
                 count = np.sum(labels == label)
                 subspace_counts[label] = count
-                print(f"  子空间 {label}: {count} 个样本")
+                print(f"  Subspace {label}: {count} samples")
             
-            # 计算最佳批次大小的函数
+            # Function to calculate optimal batch size
             def calculate_optimal_batch_size(subspace_size):
-                """根据子空间大小计算最佳批次大小"""
+                """Calculates the optimal batch size based on subspace size"""
                 if subspace_size <= 100:
                    
                     return subspace_size
@@ -263,18 +264,18 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                 
                     return subspace_size
                 else:
-                    # 大子空间使用子空间大小的因子或固定大小
+                    # For large subspaces, use a factor of the subspace size or a fixed size
                     for factor in [2, 3, 4, 5]:
                         if subspace_size % factor == 0:
                             batch = subspace_size // factor
                             if 50 <= batch <= 200:
                                 return batch
                     
-                    # 如果找不到合适的因子，使用默认值
+                    # If no suitable factor found, use default
                     return min(200, max(50, subspace_size // 5))
             
-            # 按子空间分别进行MICE填补
-            for label in tqdm(unique_labels, desc="按子空间MICE填补"):
+            # Perform MICE imputation separately for each subspace
+            for label in tqdm(unique_labels, desc="MICE Imputation by Subspace"):
                
                 indices = np.where((labels == label) & valid_mask)[0]
                 
@@ -285,12 +286,12 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                 subspace_data = data[indices].copy()
                 subspace_mask = mask[indices].copy()
                 
-                # 检查是否有缺失值
+                # Check for missing values
                 if np.all(subspace_mask):
-                    print(f"  子空间 {label} 没有缺失值，跳过MICE填补")
+                    print(f"  Subspace {label} has no missing values, skipping MICE imputation.")
                     continue
                 
-                # 先用均值填充获取初始值
+                # Fill with mean first to get initial values
                 subspace_mean_filled = np.copy(subspace_data)
                 for j in range(subspace_data.shape[1]):
                     col_values = subspace_data[:, j][subspace_mask[:, j]]
@@ -301,15 +302,15 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                                                              col_mean)
                 
                 try:
-                    # 对当前子空间应用MICE
+                    # Apply MICE to the current subspace
                     subspace_size = len(indices)
                     
-                    # 计算最佳批次大小
+                    # Calculate optimal batch size
                     optimal_batch_size = calculate_optimal_batch_size(subspace_size)
                     
-                    # 如果子空间样本数较大，需要分批处理
+                    # If subspace samples are large, process in batches
                     if subspace_size > optimal_batch_size:
-                        print(f"  子空间 {label} 样本数 {subspace_size}，使用批次大小 {optimal_batch_size}")
+                        print(f"  Subspace {label} has {subspace_size} samples, using batch size {optimal_batch_size}")
                         subspace_filled = np.zeros_like(subspace_data)
                         
                         for j in range(0, subspace_size, optimal_batch_size):
@@ -317,15 +318,15 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                             sub_batch = subspace_mean_filled[j:end_j].copy()
                             sub_batch_mask = subspace_mask[j:end_j]
                             
-                            # 只对有缺失值的批次应用MICE
+                            # Only apply MICE to batches with missing values
                             if not np.all(sub_batch_mask):
                                 try:
                                     sub_filled = mice_imputer.fit_transform(sub_batch)
                                     
-                                    # 检查填补后是否仍有缺失值
+                                    # Check if missing values still remain after imputation
                                     if np.any(np.isnan(sub_filled)):
-                                        print(f"  子空间 {label} 批次 {j//optimal_batch_size + 1} MICE填补后仍有缺失值，使用均值填补")
-                                        # 对残留缺失值使用均值填补
+                                        print(f"  Subspace {label} batch {j//optimal_batch_size + 1} still has missing values after MICE, using mean imputation.")
+                                        # Use mean imputation for remaining missing values
                                         for col in range(sub_filled.shape[1]):
                                             col_mask = np.isnan(sub_filled[:, col])
                                             if np.any(col_mask):
@@ -336,19 +337,19 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                                     
                                     subspace_filled[j:end_j] = sub_filled
                                 except Exception as e:
-                                    print(f"  子空间 {label} 批次 {j//optimal_batch_size + 1} MICE填补失败: {e}")
+                                    print(f"  Subspace {label} batch {j//optimal_batch_size + 1} MICE imputation failed: {e}")
                                     subspace_filled[j:end_j] = sub_batch  
                             else:
                                 subspace_filled[j:end_j] = sub_batch
                     else:
-                        # 直接处理整个子空间
-                        print(f"  子空间 {label} 样本数 {subspace_size}，直接处理")
+                        # Process the entire subspace directly
+                        print(f"  Subspace {label} has {subspace_size} samples, processing directly.")
                         subspace_filled = mice_imputer.fit_transform(subspace_mean_filled)
                         
-                        # 检查填补后是否仍有缺失值
+                        # Check if missing values still remain after imputation
                         if np.any(np.isnan(subspace_filled)):
-                            print(f"  子空间 {label} MICE填补后仍有缺失值，使用均值填补")
-                            # 对残留缺失值使用均值填补
+                            print(f"  Subspace {label} still has missing values after MICE, using mean imputation.")
+                            # Use mean imputation for remaining missing values
                             for col in range(subspace_filled.shape[1]):
                                 col_mask = np.isnan(subspace_filled[:, col])
                                 if np.any(col_mask):
@@ -357,21 +358,21 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                                         col_mean = 0
                                     subspace_filled[col_mask, col] = col_mean
                     
-                    # 将填补结果放回原数组
+                    # Put the imputation results back into the original array
                     data_filled[indices] = subspace_filled
                     
                 except Exception as e:
-                    print(f"  子空间 {label} MICE填补失败: {e}，使用均值填充")
+                    print(f"  Subspace {label} MICE imputation failed: {e}, using mean imputation.")
                     data_filled[indices] = subspace_mean_filled
             
         else:
             
-            print("没有检测到有效标签，使用常规分批处理进行MICE填补...")
+            print("No valid labels detected, performing regular batch MICE imputation...")
             
-            # 检查数据大小，如果太大则分批处理
+            # Check data size, if too large, process in batches
             n_samples, n_features = data.shape
             if n_samples > 1000:
-                print(f"数据较大 ({n_samples} 样本)，使用分批处理进行MICE填补...")
+                print(f"Large data ({n_samples} samples), performing MICE imputation in batches...")
                 data_filled = np.zeros_like(data)
                 
                 
@@ -380,8 +381,8 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                     col_mean = np.nanmean(data[:, i])
                     data_mean_filled[:, i] = np.where(mask[:, i], data[:, i], col_mean)
                 
-                # 计算最佳批次大小
-                batch_size_mice = min(1000, n_samples // 5)  # 默认值
+                # Calculate optimal batch size
+                batch_size_mice = min(1000, n_samples // 5)  # Default
                 for factor in [5, 4, 8, 10]:
                     if n_samples % factor == 0:
                         candidate = n_samples // factor
@@ -390,24 +391,24 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                             break
                 
                 n_batches = (n_samples + batch_size_mice - 1) // batch_size_mice
-                print(f"使用批次大小: {batch_size_mice}，共 {n_batches} 批")
+                print(f"Using batch size: {batch_size_mice}, total {n_batches} batches")
                 
-                for i in tqdm(range(0, n_samples, batch_size_mice), desc="MICE分批填补"):
+                for i in tqdm(range(0, n_samples, batch_size_mice), desc="MICE Batch Imputation"):
                     end_idx = min(i + batch_size_mice, n_samples)
                     batch_data = data_mean_filled[i:end_idx].copy()  
                     
-                    # 标记当前批次中的缺失值
+                    # Mark missing values in the current batch
                     batch_mask = mask[i:end_idx]
                     
-                    # 只对有缺失值的批次应用MICE
+                    # Only apply MICE to batches with missing values
                     if not np.all(batch_mask):
                         try:
                             batch_filled = mice_imputer.fit_transform(batch_data)
                             
-                            # 检查填补后是否仍有缺失值
+                            # Check if missing values still remain after imputation
                             if np.any(np.isnan(batch_filled)):
-                                print(f"批次 {i//batch_size_mice + 1}/{n_batches} MICE填补后仍有缺失值，使用均值填补")
-                                # 对残留缺失值使用均值填补
+                                print(f"Batch {i//batch_size_mice + 1}/{n_batches} still has missing values after MICE, using mean imputation.")
+                                # Use mean imputation for remaining missing values
                                 for col in range(batch_filled.shape[1]):
                                     col_mask = np.isnan(batch_filled[:, col])
                                     if np.any(col_mask):
@@ -418,108 +419,108 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                                         
                             data_filled[i:end_idx] = batch_filled
                         except Exception as e:
-                            print(f"批次 {i//batch_size_mice + 1}/{n_batches} MICE填补失败: {e}")
+                            print(f"Batch {i//batch_size_mice + 1}/{n_batches} MICE imputation failed: {e}")
                             data_filled[i:end_idx] = batch_data  
                     else:
                         data_filled[i:end_idx] = batch_data
             else:
-                # 数据量较小，直接处理
+                # Smaller data, process directly
                 data_filled = mice_imputer.fit_transform(np.where(np.isnan(data), np.nanmean(data, axis=0), data))
                 
-                # 检查填补后是否仍有缺失值
+                # Check if missing values still remain after imputation
                 if np.any(np.isnan(data_filled)):
-                    print("MICE填补后仍有缺失值，使用均值填补")
-                    # 对残留缺失值使用均值填补
+                    print("Still has missing values after MICE, using mean imputation.")
+                    # Use mean imputation for remaining missing values
                     for col in range(data_filled.shape[1]):
                         col_mask = np.isnan(data_filled[:, col])
                         if np.any(col_mask):
                             col_mean = np.nanmean(data_filled[:, col])
-                            if np.isnan(col_mean):  # 整列都是NaN
+                            if np.isnan(col_mean):  # Entire column is NaN
                                 col_mean = 0
                             data_filled[col_mask, col] = col_mean
         
         end_time = time.time()
-        print(f"MICE填补完成，耗时: {end_time - start_time:.2f} 秒")
+        print(f"MICE imputation completed, elapsed time: {end_time - start_time:.2f} seconds")
         
     except (ImportError, ValueError) as e:
     
-        print(f"MICE方法失败，错误: {e}，回退到均值填补")
-        print("使用均值填补数据以构建图...")
+        print(f"MICE method failed, error: {e}, falling back to mean imputation.")
+        print("Imputing data with mean for graph construction...")
         data_filled = np.copy(data)
-        for i in tqdm(range(data.shape[1]), desc="均值填补"):
+        for i in tqdm(range(data.shape[1]), desc="Mean Imputation"):
             col_mean = np.nanmean(data[:, i])
             data_filled[:, i] = np.where(mask[:, i], data[:, i], col_mean)
     
    
     data_filled = ensure_no_missing(data_filled)
     
-    print("构建KNN图...")
+    print("Building KNN graph...")
     start_time = time.time()
     
    
     n_samples = data.shape[0]
     if n_samples > 5000 and torch.cuda.is_available():
-        print(f"样本数量较大 ({n_samples})，使用GPU加速的KNN...")
+        print(f"Large number of samples ({n_samples}), using GPU-accelerated KNN...")
         try:
-            # 使用GPU加速KNN计算
+            # Use GPU accelerated KNN calculation
             data_tensor = torch.FloatTensor(data_filled).to(device)
             adj = torch.zeros((n_samples, n_samples), device=device)
             
-            # 使用子空间感知的批处理大小
+            # Use subspace-aware batch size
             batch_size_knn = calculate_subspace_aware_batch_size(labels, default_size=360)
-            print(f"使用子空间感知的批处理大小: {batch_size_knn}")
+            print(f"Using subspace-aware batch size: {batch_size_knn}")
             
-            for i in tqdm(range(0, n_samples, batch_size_knn), desc="计算KNN (GPU)"):
+            for i in tqdm(range(0, n_samples, batch_size_knn), desc="Calculating KNN (GPU)"):
                 end_i = min(i + batch_size_knn, n_samples)
                 batch_i = data_tensor[i:end_i]
                 
-                # 计算当前批次与所有样本的距离
+                # Calculate distances between current batch and all samples
                 if metric == 'cosine':
-                    # 计算余弦相似度
+                    # Calculate cosine similarity
                     batch_norm = torch.norm(batch_i, dim=1, keepdim=True)
                     all_norm = torch.norm(data_tensor, dim=1, keepdim=True)
                     
-                    # 避免除以零
+                    # Avoid division by zero
                     batch_norm[batch_norm == 0] = 1e-8
                     all_norm[all_norm == 0] = 1e-8
                     
                     batch_normalized = batch_i / batch_norm
                     all_normalized = data_tensor / all_norm
                     
-                    # 计算相似度矩阵 (越大越相似)
+                    # Calculate similarity matrix (larger is more similar)
                     sim_matrix = torch.mm(batch_normalized, all_normalized.t())
                     
-                    # 对每行找出最大的k个值（不包括自身）
+                    # Find top k values for each row (excluding self)
                     for j in range(i, end_i):
                         row_idx = j - i
                         sim_row = sim_matrix[row_idx]
-                        sim_row[j] = -1  # 排除自身
+                        sim_row[j] = -1  # Exclude self
                         
-                        # 找出前k个最大值的索引
+                        # Find indices of the top k largest values
                         _, topk_indices = torch.topk(sim_row, k)
                         
-                        # 设置邻接矩阵
+                        # Set adjacency matrix
                         adj[j, topk_indices] = 1
                 else:
-                    # 欧氏距离
+                    # Euclidean distance
                     for j in range(i, end_i):
                         row_idx = j - i
                         diff = data_tensor[j:j+1] - data_tensor
                         dist = torch.sum(diff * diff, dim=1)
                         
-                        # 排除自身
+                        # Exclude self
                         dist[j] = float('inf')
                         
-                        # 找出前k个最小值的索引
+                        # Find indices of the top k smallest values
                         _, topk_indices = torch.topk(dist, k, largest=False)
                         
-                        # 设置邻接矩阵
+                        # Set adjacency matrix
                         adj[j, topk_indices] = 1
             
             adj = adj.cpu().numpy()
             
         except Exception as e:
-            print(f"GPU加速KNN失败: {e}，回退到CPU计算")
+            print(f"GPU accelerated KNN failed: {e}, falling back to CPU calculation.")
             knn = kneighbors_graph(data_filled, k, metric=metric, include_self=False)
             adj = knn.toarray()
     else:
@@ -527,34 +528,34 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
         adj = knn.toarray()
     
     end_time = time.time()
-    print(f"KNN图构建完成，耗时: {end_time - start_time:.2f} 秒")
+    print(f"KNN graph construction completed, elapsed time: {end_time - start_time:.2f} seconds")
     
-    # 获取每个样本的KNN索引
+    # Get KNN indices for each sample
     n_samples = data.shape[0]
     knn_indices = []
     for i in range(n_samples):
         neighbors = np.nonzero(adj[i])[0]
         knn_indices.append(neighbors)
     
-    # 如果有标签信息，增强子空间内的连接
+    # If label information is available, enhance intra-subspace connections
     if labels is not None:
-        print("增强子空间内的连接...")
+        print("Enhancing intra-subspace connections...")
         
-        # 计算所有样本对之间的特征相似度 
+        # Calculate feature similarity between all pairs of samples
         n_samples = data.shape[0]
         
-        # 找出有效标签
+        # Find valid labels
         valid_mask = ~np.isnan(labels)
         valid_indices = np.where(valid_mask)[0]
         n_valid = len(valid_indices)
         
-        print(f"计算 {n_valid} 个有效样本的相似度矩阵...")
+        print(f"Calculating similarity matrix for {n_valid} valid samples...")
         
-        # 创建标签掩码矩阵 
+        # Create label mask matrix
         from scipy.sparse import lil_matrix
         label_mask = lil_matrix((n_samples, n_samples), dtype=np.float32)
         
-        # 预处理标签，创建标签到索引的映射
+        # Preprocess labels, create label to index mapping
         label_to_indices = {}
         for i, idx in enumerate(valid_indices):
             lbl = labels[idx]
@@ -562,35 +563,35 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                 label_to_indices[lbl] = []
             label_to_indices[lbl].append(idx)
         
-        print(f"处理 {len(label_to_indices)} 个不同标签的样本组...")
+        print(f"Processing {len(label_to_indices)} groups of samples with different labels...")
         
-        # 对每个标签组单独处理
-        for label, indices in tqdm(label_to_indices.items(), desc="处理标签组"):
+        # Process each label group separately
+        for label, indices in tqdm(label_to_indices.items(), desc="Processing Label Groups"):
             n_indices = len(indices)
             
-            # 计算最佳批次大小
+            # Calculate optimal batch size
             optimal_batch_size = min(batch_size, max(72, n_indices // 2))
             
-            # 如果同一标签的样本数量太多，分批处理
+            # If too many samples with the same label, process in batches
             if n_indices > optimal_batch_size:
                 for i in range(0, n_indices, optimal_batch_size):
                     batch_indices = indices[i:min(i+optimal_batch_size, n_indices)]
                     process_batch(batch_indices, indices, data_filled, label_mask, 
                                  similarity_threshold, metric, device)
             else:
-                # 直接处理
+                # Process directly
                 process_batch(indices, indices, data_filled, label_mask, 
                              similarity_threshold, metric, device)
         
-        print(f"处理 {len(label_to_indices)} 个不同标签的样本组...")
+        print(f"Processing {len(label_to_indices)} groups of samples with different labels...")
         
-        # 对每个标签组单独处理
-        for label, indices in tqdm(label_to_indices.items(), desc="处理标签组"):
+        # Process each label group separately
+        for label, indices in tqdm(label_to_indices.items(), desc="Processing Label Groups"):
             n_indices = len(indices)
             
-            # 计算子空间感知的批处理大小
-            # 对于同一标签的样本，我们希望批次大小是样本数量的因子，以避免分割
-            # 尝试找到一个接近但不超过原始批次大小的因子
+            # Calculate subspace-aware batch size
+            # For samples with the same label, we want the batch size to be a factor of the number of samples to avoid splitting
+            # Try to find a factor close to but not exceeding the original batch size
             factors = []
             for i in range(1, int(np.sqrt(n_indices)) + 1):
                 if n_indices % i == 0:
@@ -599,7 +600,7 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
                         factors.append(n_indices // i)
             factors.sort()
             
-            # 选择最接近但不超过batch_size的最大因子
+            # Select the largest factor closest to but not exceeding batch_size
             optimal_batch_size = 1  
             for factor in factors:
                 if factor <= batch_size:
@@ -611,9 +612,9 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
             if optimal_batch_size < batch_size * 0.2:
                 optimal_batch_size = min(batch_size, n_indices)
             
-            print(f"  标签 {label} 的样本数: {n_indices}，使用批次大小: {optimal_batch_size} (因子: {n_indices % optimal_batch_size == 0})")
+            print(f"  Label {label} samples: {n_indices}, using batch size: {optimal_batch_size} (Factor: {n_indices % optimal_batch_size == 0})")
             
-            # 如果同一标签的样本数量太多，分批处理
+            # If too many samples with the same label, process in batches
             if n_indices > optimal_batch_size:
                 for i in range(0, n_indices, optimal_batch_size):
                     batch_indices = indices[i:min(i+optimal_batch_size, n_indices)]
@@ -626,27 +627,27 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
         
         
         
-        print("合并KNN图和子空间连接...")
+        print("Merging KNN graph and subspace connections...")
         
         label_mask = label_mask.toarray()
         
-        # 增强子空间内的连接，使用加权平均
+        # Enhance intra-subspace connections using weighted average
         adj = alpha * adj + (1 - alpha) * label_mask
     
-    # 确保对称性
+    # Ensure symmetry
     adj = np.maximum(adj, adj.T)
     
-    print("转换为PyTorch张量并归一化...")
+    print("Converting to PyTorch tensor and normalizing...")
    
     adj_tensor = torch.FloatTensor(adj)
     
-    # 添加自环
+    # Add self-loops
     adj_tensor = adj_tensor + torch.eye(adj_tensor.shape[0])
     
-    # 度矩阵
+    # Degree matrix
     D = torch.diag(torch.sum(adj_tensor, dim=1))
     
-    # 归一化邻接矩阵: D^(-1/2) * A * D^(-1/2)
+    # Normalized adjacency matrix: D^(-1/2) * A * D^(-1/2)
     D_inv_sqrt = torch.pow(D, -0.5)
     D_inv_sqrt[torch.isinf(D_inv_sqrt)] = 0
     adj_normalized = torch.mm(torch.mm(D_inv_sqrt, adj_tensor), D_inv_sqrt)
@@ -655,7 +656,7 @@ def build_subspace_aware_graph(data, labels, k=5, metric='cosine', alpha=0.9, si
 
 def process_batch(batch_indices, all_indices, data_filled, label_mask, similarity_threshold, metric, device):
     """
-    处理一批样本与所有同标签样本之间的相似度计算
+    Processes the similarity calculation between a batch of samples and all samples with the same label.
     """
     batch_data = data_filled[batch_indices]
     all_data = data_filled[all_indices]
@@ -665,33 +666,33 @@ def process_batch(batch_indices, all_indices, data_filled, label_mask, similarit
         all_tensor = torch.FloatTensor(all_data).to(device)
         
         if metric == 'cosine':
-            # 计算余弦相似度
+            # Calculate cosine similarity
             batch_norm = torch.norm(batch_tensor, dim=1, keepdim=True)
             all_norm = torch.norm(all_tensor, dim=1, keepdim=True)
             
-            # 避免除以零
+            # Avoid division by zero
             batch_norm[batch_norm == 0] = 1e-8
             all_norm[all_norm == 0] = 1e-8
             
             batch_normalized = batch_tensor / batch_norm
             all_normalized = all_tensor / all_norm
             
-            # 计算相似度矩阵
+            # Calculate similarity matrix
             batch_sim = torch.mm(batch_normalized, all_normalized.t()).cpu().numpy()
             
-            # 将相似度归一化到[0, 1]
+            # Normalize similarity to [0, 1]
             batch_sim = (batch_sim + 1) / 2
         else:
-            # 欧氏距离
+            # Euclidean distance
             batch_squared = torch.sum(batch_tensor ** 2, dim=1, keepdim=True)
             all_squared = torch.sum(all_tensor ** 2, dim=1, keepdim=True)
             
             cross_term = torch.mm(batch_tensor, all_tensor.t())
             dist_matrix = batch_squared + all_squared.t() - 2 * cross_term
-            dist_matrix = torch.clamp(dist_matrix, min=0)  # 避免数值误差导致的负值
+            dist_matrix = torch.clamp(dist_matrix, min=0)  # Avoid negative values due to numerical errors
             dist_matrix = torch.sqrt(dist_matrix).cpu().numpy()
             
-            # 将距离转换为相似度
+            # Convert distance to similarity
             max_dist = np.max(dist_matrix) if np.max(dist_matrix) > 0 else 1.0
             batch_sim = 1 - (dist_matrix / max_dist)
     else:
@@ -704,19 +705,19 @@ def process_batch(batch_indices, all_indices, data_filled, label_mask, similarit
             max_dist = np.max(dist_matrix) if np.max(dist_matrix) > 0 else 1.0
             batch_sim = 1 - (dist_matrix / max_dist)
     
-    # 构建基于特征相似度的标签掩码矩阵
+    # Build label mask matrix based on feature similarity
     for idx, orig_idx in enumerate(batch_indices):
         for j_idx, j in enumerate(all_indices):
-            if orig_idx != j:  # 不连接自身
-                # 只有当特征相似度高于阈值时才连接
+            if orig_idx != j:  # Do not connect to self
+                # Connect only if feature similarity is above threshold
                 sim = batch_sim[idx, j_idx]
                 if sim >= similarity_threshold:
-                    # 使用相似度作为连接权重
+                    # Use similarity as connection weight
                     label_mask[orig_idx, j] = sim
 
 def masked_mse_loss(output, target, mask):
     """
-    计算带掩码的MSE损失
+    Calculates Mean Squared Error (MSE) loss with a mask.
     """
     diff = (output - target) * mask
     return torch.sum(diff ** 2) / torch.sum(mask)
@@ -726,25 +727,25 @@ def enhanced_masked_loss(output, target, mask, subspace_labels=None, feature_wei
                          use_ssim=True, img_size=32, alpha_mse=0.7, alpha_ssim=0.3, 
                          alpha_subspace=1):
     """
-    增强版损失函数，结合MSE、结构相似性和权重机制
+    Enhanced loss function, combining MSE, structural similarity, and weighting mechanisms.
     """
     n_samples = output.shape[0]
     n_features = output.shape[1]
     device = output.device
     
-    # 基础MSE损失
+    # Base MSE loss
     diff = (output - target) * mask
     
-    #应用子空间权重
+    # Apply subspace weights
     if subspace_labels is not None:
-        # 计算每个子空间的平均误差
+        # Calculate average error for each subspace
         unique_subspaces = torch.unique(subspace_labels)
         n_subspaces = len(unique_subspaces)
         
-        # 创建子空间权重矩阵
+        # Create subspace weight matrix
         subspace_weights = torch.ones(n_samples, device=device)
         
-        # 计算每个子空间的平均损失
+        # Calculate average loss for each subspace
         subspace_losses = []
         for s in unique_subspaces:
             s_mask = (subspace_labels == s)
@@ -758,9 +759,9 @@ def enhanced_masked_loss(output, target, mask, subspace_labels=None, feature_wei
                 s_loss = torch.sum(s_diff ** 2) / torch.sum(s_mask_vals)
                 subspace_losses.append((s, s_loss))
         
-        # 根据损失大小分配权重,更关注难填补的子空间
+        # Allocate weights based on loss magnitude, focusing more on difficult-to-impute subspaces
         if len(subspace_losses) > 1:
-            # 归一化子空间损失
+            # Normalize subspace losses
             s_losses = torch.tensor([l for _, l in subspace_losses], device=device)
             min_loss = torch.min(s_losses)
             max_loss = torch.max(s_losses)
@@ -769,10 +770,10 @@ def enhanced_masked_loss(output, target, mask, subspace_labels=None, feature_wei
             if min_loss != max_loss:
                 norm_losses = (s_losses - min_loss) / (max_loss - min_loss)
                 
-                # 将归一化损失转换为权重
+                # Convert normalized losses to weights
                 s_weights = 1.0 + norm_losses  
                 
-                # 应用权重到对应子空间
+                # Apply weights to corresponding subspaces
                 for i, (s, _) in enumerate(subspace_losses):
                     subspace_weights[subspace_labels == s] = s_weights[i]
         
@@ -780,64 +781,63 @@ def enhanced_masked_loss(output, target, mask, subspace_labels=None, feature_wei
         diff = diff * subspace_weights.view(-1, 1)
     
    
-    # 计算特征的缺失率
+    # Calculate missing rate of features
     feature_missing_rate = 1 - torch.mean(mask, dim=0)
     
-    # 计算最终的MSE损失
+    # Calculate final MSE loss
     mse_loss = torch.sum(diff ** 2) / torch.sum(mask)
     
-    # 结构相似性损失 (SSIM)
-    if use_ssim and n_features == img_size * img_size:  # 只对图像数据使用SSIM
+    # Structural Similarity Loss (SSIM)
+    if use_ssim and n_features == img_size * img_size:  # Only use SSIM for image data
         try:
             ssim_loss = 0
             valid_samples = 0
             
-            # 重塑为图像格式进行SSIM计算
+            # Reshape to image format for SSIM calculation
             output_images = output.view(-1, 1, img_size, img_size)  # [B, C, H, W]
             target_images = target.view(-1, 1, img_size, img_size)
             mask_images = mask.view(-1, 1, img_size, img_size)
             
-            # 逐样本计算SSIM
+            # Calculate SSIM per sample
             for i in range(n_samples):
-                # 只对掩码覆盖率超过50%的样本计算SSIM
+                # Only calculate SSIM for samples with mask coverage > 50%
                 if torch.mean(mask_images[i]) >= 0.5:
                     sample_ssim = 1 - compute_ssim(output_images[i], target_images[i], mask_images[i])
                     ssim_loss += sample_ssim
                     valid_samples += 1
             
-            # 平均SSIM损失
+            # Average SSIM loss
             if valid_samples > 0:
                 ssim_loss = ssim_loss / valid_samples
             else:
                 ssim_loss = torch.tensor(0.0, device=device)
                 
-            # 组合MSE和SSIM损失
+            # Combine MSE and SSIM loss
             combined_loss = alpha_mse * mse_loss + alpha_ssim * ssim_loss
             return combined_loss
             
         except Exception as e:
-            print(f"SSIM计算错误: {e}，回退到MSE损失")
+            print(f"SSIM calculation error: {e}, falling back to MSE loss.")
             return mse_loss
     
     return mse_loss
 
-
 def compute_ssim(img1, img2, mask=None, window_size=11, sigma=1.5):
     """
-    计算带掩码的结构相似性指数(SSIM)
+    Calculates the masked Structural Similarity Index (SSIM).
     """
   
     device = img1.device
     
-    # 创建高斯窗口
+    # Create Gaussian window
     window = create_gaussian_window(window_size, sigma).to(device)
     
-    # 应用掩码
+    # Apply mask
     if mask is not None:
         img1 = img1 * mask
         img2 = img2 * mask
     
-    # 计算均值
+    # Calculate means
     mu1 = F.conv2d(img1, window, padding=window_size//2, groups=1)
     mu2 = F.conv2d(img2, window, padding=window_size//2, groups=1)
     
@@ -845,25 +845,25 @@ def compute_ssim(img1, img2, mask=None, window_size=11, sigma=1.5):
     mu2_sq = mu2.pow(2)
     mu1_mu2 = mu1 * mu2
     
-    # 计算方差和协方差
+    # Calculate variances and covariance
     sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size//2, groups=1) - mu1_sq
     sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size//2, groups=1) - mu2_sq
     sigma12 = F.conv2d(img1 * img2, window, padding=window_size//2, groups=1) - mu1_mu2
     
-    # SSIM稳定常数
+    # SSIM constants
     C1 = 0.01 ** 2
     C2 = 0.03 ** 2
     
-    # 计算SSIM
+    # Calculate SSIM
     ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
     
-    # 如果有掩码，只考虑掩码覆盖区域
+    # If mask is present, consider only masked regions
     if mask is not None:
-        # 下采样掩码以匹配SSIM图
+        # Downsample mask to match SSIM map
         mask_downsampled = F.conv2d(mask, window, padding=window_size//2, groups=1)
-        mask_downsampled = (mask_downsampled > 0.5).float()  # 二值化
+        mask_downsampled = (mask_downsampled > 0.5).float()  # Binarize
         
-        # 计算掩码区域的平均SSIM
+        # Calculate average SSIM in the masked area
         ssim_masked = (ssim_map * mask_downsampled).sum() / (mask_downsampled.sum() + 1e-8)
         return ssim_masked
     
@@ -872,7 +872,7 @@ def compute_ssim(img1, img2, mask=None, window_size=11, sigma=1.5):
 
 def create_gaussian_window(window_size, sigma):
     """
-    创建高斯窗口用于SSIM计算
+    Creates a Gaussian window for SSIM calculation.
     """
     coords = torch.arange(window_size, dtype=torch.float)
     coords -= window_size // 2
@@ -888,17 +888,17 @@ def create_gaussian_window(window_size, sigma):
 
 def calculate_subspace_aware_batch_size(labels, default_size=360, min_multiplier=3, max_multiplier=10):
     """
-    计算子空间感知的批处理大小，确保批次大小是子空间样本数量的整数倍
+    Calculates a subspace-aware batch size, ensuring the batch size is an integer multiple of the number of samples in a subspace.
     """
    
     valid_mask = ~np.isnan(labels)
     if not np.any(valid_mask):
         return default_size 
     
-    # 获取唯一标签
+    # Get unique labels
     unique_labels = np.unique(labels[valid_mask])
     
-    # 计算每个子空间的样本数量
+    # Calculate the number of samples in each subspace
     subspace_sizes = []
     for label in unique_labels:
         size = np.sum(labels == label)
@@ -907,20 +907,20 @@ def calculate_subspace_aware_batch_size(labels, default_size=360, min_multiplier
     
     if len(subspace_sizes) == 1:
         subspace_size = subspace_sizes[0]
-        # 选择合适的倍数
+        # Choose an appropriate multiplier
         for multiplier in range(min_multiplier, max_multiplier + 1):
             if subspace_size * multiplier <= default_size * 1.5:
                 return subspace_size * multiplier
         return subspace_size
     
-    # 找出最大的子空间大小
+    # Find the largest subspace size
     max_subspace_size = max(subspace_sizes)
     
-    # 找出最小的子空间大小
+    # Find the smallest subspace size
     min_subspace_size = min(subspace_sizes)
     
-    # 尝试找到一个能被所有子空间大小整除的批次大小
-    # 首先尝试使用最大公约数(GCD)的倍数
+    # Try to find a batch size that is divisible by all subspace sizes
+    # First, try using multiples of the greatest common divisor (GCD)
     
     def find_gcd(numbers):
         return reduce(gcd, numbers)
@@ -928,13 +928,13 @@ def calculate_subspace_aware_batch_size(labels, default_size=360, min_multiplier
     common_divisor = find_gcd(subspace_sizes)
     
     if common_divisor >= 10:
-        # 选择公约数的倍数，使其接近但不超过默认大小
+        # Choose a multiple of the common divisor that is close to but does not exceed the default size
         multiplier = default_size // common_divisor
         if multiplier < min_multiplier:
             multiplier = min_multiplier
         return common_divisor * multiplier
     
-    # 如果没有合适的公约数，尝试找到一个能被最大子空间大小整除的批次大小
+    # If no suitable common divisor, try to find a batch size divisible by the largest subspace size
     for multiplier in range(min_multiplier, max_multiplier + 1):
         batch_size = max_subspace_size * multiplier
         if batch_size >= default_size * 0.7 and batch_size <= default_size * 1.5:
@@ -947,24 +947,24 @@ def calculate_subspace_aware_batch_size(labels, default_size=360, min_multiplier
 @timer
 def subspace_aware_imputation(data, labels, mask=None, n_subspaces=None, epochs=200, lr=0.001, k=5, hidden_dims=[1024, 512, 256], alpha=0.9, verbose=True, batch_size=1000, use_enhanced_loss=True, img_size=32):
     """
-    使用子空间感知的图神经网络进行缺失值填补
+    Performs missing value imputation using a subspace-aware Graph Neural Network.
     """
     if mask is None:
         mask = ~np.isnan(data)
     
   
-    print("准备数据...")
+    print("Preparing data...")
     data_filled, _ = prepare_data_for_imputation(data, mask, labels)
     
-    # 处理标签
-    print("处理标签...")
+    # Process labels
+    print("Processing labels...")
     valid_labels = ~np.isnan(labels)
     if np.any(valid_labels):
-        # 将标签转换为整数类别
+        # Convert labels to integer categories
         unique_labels = np.unique(labels[valid_labels])
         label_map = {lbl: i for i, lbl in enumerate(unique_labels)}
         
-        # 创建子空间标签数组
+        # Create subspace label array
         subspace_labels = np.zeros(labels.shape, dtype=int)
         for i, lbl in enumerate(labels):
             if not np.isnan(lbl):
@@ -973,7 +973,7 @@ def subspace_aware_imputation(data, labels, mask=None, n_subspaces=None, epochs=
                 
                 subspace_labels[i] = 0
         
-        # 确定子空间数量
+        # Determine number of subspaces
         if n_subspaces is None:
             n_subspaces = len(unique_labels)
     else:
@@ -982,17 +982,17 @@ def subspace_aware_imputation(data, labels, mask=None, n_subspaces=None, epochs=
         if n_subspaces is None:
             n_subspaces = 1
     
-    print(f"检测到 {n_subspaces} 个子空间")
+    print(f"Detected {n_subspaces} subspaces")
     
-    # 构建子空间感知的图
+    # Build subspace-aware graph
     adj, knn_indices = build_subspace_aware_graph(data_filled, labels, k=k, alpha=alpha, batch_size=batch_size)
     
-    print("标准化数据...")
+    print("Normalizing data...")
     scaler = StandardScaler()
     data_scaled = scaler.fit_transform(data_filled)
     
   
-    print("转换数据为PyTorch张量...")
+    print("Converting data to PyTorch tensors...")
     data_tensor = torch.FloatTensor(data_scaled).to(device)
     mask_tensor = torch.FloatTensor(mask.astype(float)).to(device)
     adj_tensor = adj.to(device)
@@ -1001,8 +1001,8 @@ def subspace_aware_imputation(data, labels, mask=None, n_subspaces=None, epochs=
     
     feature_weights = None
     
-    # 创建模型
-    print("创建GNN模型...")
+    # Create model
+    print("Creating GNN model...")
     model = SubspaceAwareGNN(
         input_dim=data.shape[1], 
         hidden_dims=hidden_dims, 
@@ -1011,79 +1011,79 @@ def subspace_aware_imputation(data, labels, mask=None, n_subspaces=None, epochs=
     
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     
-    # 训练模型
+    # Train model
     model.train()
     pbar = tqdm(range(epochs)) if verbose else range(epochs)
     losses = []
     
-    # 添加学习率调度器
+    # Add learning rate scheduler
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10, verbose=verbose)
     
-    print("开始训练GNN模型...")
+    print("Starting GNN model training...")
     train_start_time = time.time()
     
     for epoch in pbar:
-        # 前向传播
+        # Forward pass
         optimizer.zero_grad()
         output = model(data_tensor, adj_tensor, subspace_tensor)
         
-        # 计算损失
+        # Calculate loss
         if use_enhanced_loss:
             loss = enhanced_masked_loss(
                 output=output, 
                 target=data_tensor, 
                 mask=mask_tensor,
                 subspace_labels=subspace_tensor,
-                feature_weights=None,  # 不再使用特征权重
-                use_ssim=(data.shape[1] == img_size * img_size),  # 只对图像使用SSIM
+                feature_weights=None,  # Feature weights no longer used
+                use_ssim=(data.shape[1] == img_size * img_size),  # Use SSIM only for images
                 img_size=img_size
             )
         else:
             loss = masked_mse_loss(output, data_tensor, mask_tensor)
         
-        # 反向传播
+        # Backward pass
         loss.backward()
         optimizer.step()
         
-        # 更新学习率
+        # Update learning rate
         scheduler.step(loss)
         
-        # 更新进度条
+        # Update progress bar
         losses.append(loss.item())
         if verbose:
             pbar.set_description(f"Epoch {epoch+1}/{epochs}, Loss: {loss.item():.6f}")
         
-        # 更新填补值
+        # Update imputed values
         with torch.no_grad():
             model.eval()
             output = model(data_tensor, adj_tensor, subspace_tensor)
-            # 只更新缺失值
+            # Only update missing values
             data_tensor = data_tensor * mask_tensor + output * (1 - mask_tensor)
             model.train()
     
     train_end_time = time.time()
-    print(f"GNN模型训练完成，耗时: {train_end_time - train_start_time:.2f} 秒")
+    print(f"GNN model training completed, elapsed time: {train_end_time - train_start_time:.2f} seconds")
     
-    # 最终预测
-    print("生成最终预测...")
+    # Final prediction
+    print("Generating final predictions...")
     model.eval()
     with torch.no_grad():
         output = model(data_tensor, adj_tensor, subspace_tensor)
-        # 只更新缺失值
+        # Only update missing values
         final_output = data_tensor * mask_tensor + output * (1 - mask_tensor)
     
-    # 反标准化
-    print("反标准化数据...")
+    # Inverse scaling
+    print("Inverse transforming data...")
     imputed_data_scaled = final_output.cpu().numpy()
     imputed_data = scaler.inverse_transform(imputed_data_scaled)
     
-    # 只替换缺失值
+    # Only replace missing values
     result = np.copy(data)
     result[~mask] = imputed_data[~mask]
     
-    # 可视化损失曲线
+    # Visualize loss curve
     if verbose:
-        print("生成损失曲线...")
+        print("Generating loss curve...")
         plt.figure(figsize=(10, 5))
         plt.plot(losses)
         plt.title('Training Loss')
@@ -1095,10 +1095,9 @@ def subspace_aware_imputation(data, labels, mask=None, n_subspaces=None, epochs=
     
     return result
 
-
 def prepare_data_for_imputation(data, mask=None, labels=None, img_size=32):
     """
-    准备用于填补的数据，考虑图像的空间结构，使用MICE方法进行填补
+    Prepares data for imputation, considering the spatial structure of images, using the MICE method for imputation.
     """
     if mask is None:
         mask = ~np.isnan(data)
@@ -1107,12 +1106,12 @@ def prepare_data_for_imputation(data, mask=None, labels=None, img_size=32):
     n_samples = data.shape[0]
     n_features = data.shape[1]
     
-    # 检查是否为方形图像
+    # Check if it's a square image
     if img_size * img_size != n_features:
-        print(f"警告: 特征数量 {n_features} 不等于 {img_size}x{img_size}={img_size*img_size}，使用传统填补方法")
+        print(f"Warning: Number of features {n_features} does not equal {img_size}x{img_size}={img_size*img_size}, using traditional imputation method.")
         return prepare_data_for_imputation_traditional(data, mask, labels)
     
-    # 将数据重塑为图像形状以便空间填补
+    # Reshape data to image shape for spatial imputation
     data_reshaped = data.reshape(n_samples, img_size, img_size)
     mask_reshaped = mask.reshape(n_samples, img_size, img_size)
     data_filled_reshaped = np.copy(data_reshaped)
@@ -1123,51 +1122,51 @@ def prepare_data_for_imputation(data, mask=None, labels=None, img_size=32):
         from sklearn.impute import IterativeImputer
         from sklearn.linear_model import BayesianRidge
         
-        print("使用MICE方法进行图像数据填补")
+        print("Using MICE method for image data imputation.")
         
-        # 对每个样本单独处理
-        print(f"开始处理 {n_samples} 个样本的MICE填补...")
+        # Process each sample individually
+        print(f"Starting MICE imputation for {n_samples} samples...")
         start_time = time.time()
         
-        for idx in tqdm(range(n_samples), desc="MICE填补进度"):
-            # 获取当前图像
+        for idx in tqdm(range(n_samples), desc="MICE Imputation Progress"):
+            # Get current image
             img = data_reshaped[idx]
             img_mask = mask_reshaped[idx]
             
-            # 如果图像没有缺失值，则跳过
+            # If image has no missing values, skip
             if np.all(img_mask):
                 continue
                 
             
             
-            # 将图像重塑为2D矩阵，每行是一个像素，每列是一个特征
+            # Reshape image to a 2D matrix, each row is a pixel, each column is a feature
             img_2d = img.reshape(img_size*img_size, 1)
             img_mask_2d = img_mask.reshape(img_size*img_size, 1)
             
-            # 使用BayesianRidge作为基础估计器
+            # Use BayesianRidge as base estimator
             estimator = BayesianRidge()
             imputer = IterativeImputer(
                 estimator=estimator,
                 max_iter=5000,
                 random_state=42,
                 verbose=0,
-                n_nearest_features=min(300, img_size),  # 使用最近的10个特征或全部特征
-                skip_complete=True  # 跳过没有缺失值的列
+                n_nearest_features=min(300, img_size),  # Use 10 nearest features or all features
+                skip_complete=True  # Skip columns with no missing values
             )
             
-            # 为了增加特征维度，我们添加像素的位置信息
+            # To add feature dimension, we add pixel position information
             rows, cols = np.mgrid[0:img_size, 0:img_size]
             positions = np.column_stack([rows.ravel(), cols.ravel()])
             
-            # 组合位置信息和像素值
+            # Combine position information and pixel values
             features = np.column_stack([positions, img_2d])
             
-            # 创建缺失值掩码
+            # Create missing value mask
             missing_mask = ~img_mask_2d.ravel()
             
-            # 如果缺失值比例太高，MICE可能效果不佳，先进行简单填充
+            # If missing value ratio is too high, MICE might not work well, perform simple fill first
             if np.mean(missing_mask) > 0.5:
-                # 使用列均值进行初步填充
+                # Use column mean for initial filling
                 for j in range(img_size):
                     valid_values = img[:, j][img_mask[:, j]]
                     if len(valid_values) > 0:
@@ -1176,48 +1175,48 @@ def prepare_data_for_imputation(data, mask=None, labels=None, img_size=32):
                         for i in missing_rows:
                             features[i*img_size+j, 2] = column_mean
             
-            # 应用MICE
+            # Apply MICE
             imputed_features = imputer.fit_transform(features)
             
-            # 提取填充后的像素值并重塑回图像
+            # Extract imputed pixel values and reshape back to image
             imputed_img = imputed_features[:, 2].reshape(img_size, img_size)
             
-            # 只替换缺失值
+            # Only replace missing values
             data_filled_reshaped[idx][~img_mask] = imputed_img[~img_mask]
             
         end_time = time.time()
-        print(f"MICE填补完成，耗时: {end_time - start_time:.2f} 秒")
+        print(f"MICE imputation completed, elapsed time: {end_time - start_time:.2f} seconds")
         
     except (ImportError, ValueError) as e:
-        print(f"MICE方法失败，错误: {e}，回退到传统填补方法")
+        print(f"MICE method failed, error: {e}, falling back to traditional imputation method.")
         
-        # 回退到传统的填补策略
-        for idx in tqdm(range(n_samples), desc="传统填补进度"):
-            # 对于图像中的每一列
+        # Fallback to traditional imputation strategy
+        for idx in tqdm(range(n_samples), desc="Traditional Imputation Progress"):
+            # For each column in the image
             for j in range(img_size):
-                # 获取当前列的有效值
+                # Get valid values for the current column
                 valid_values = data_reshaped[idx, :, j][mask_reshaped[idx, :, j]]
                 
-                # 计算列均值并填补该列中的缺失值
+                # Calculate column mean and impute missing values in that column
                 if len(valid_values) > 0:
                     column_mean = np.mean(valid_values)
-                    # 找出该列中的缺失位置
+                    # Find missing positions in this column
                     missing_rows = np.where(~mask_reshaped[idx, :, j])[0]
-                    # 填补缺失值
+                    # Impute missing values
                     for i in missing_rows:
                         data_filled_reshaped[idx, i, j] = column_mean
         
-        # 对于仍然缺失的值，尝试使用行均值填补
+        # For remaining missing values, try using row mean imputation
         still_missing = ~mask_reshaped & np.isnan(data_filled_reshaped)
         if np.any(still_missing):
-            print("部分缺失值无法通过列均值填补，尝试使用行均值填补")
-            for idx in tqdm(range(n_samples), desc="行均值填补"):
-                # 对于图像中的每一行
+            print("Some missing values could not be imputed by column mean, attempting row mean imputation.")
+            for idx in tqdm(range(n_samples), desc="Row Mean Imputation"):
+                # For each row in the image
                 for i in range(img_size):
-                    # 获取当前行的有效值
+                    # Get valid values for the current row
                     valid_values = data_reshaped[idx, i, :][mask_reshaped[idx, i, :]]
                     
-                    # 如果有有效值，计算行均值并填补该行中的缺失值
+                    # If valid values exist, calculate row mean and impute missing values in that row
                     if len(valid_values) > 0:
                         row_mean = np.mean(valid_values)
                        
@@ -1226,45 +1225,45 @@ def prepare_data_for_imputation(data, mask=None, labels=None, img_size=32):
                         for j in missing_cols:
                             data_filled_reshaped[idx, i, j] = row_mean
         
-        # 对于仍然缺失的值，使用图像整体均值填补
+        # For remaining missing values, use overall image mean imputation
         still_missing = ~mask_reshaped & np.isnan(data_filled_reshaped)
         if np.any(still_missing):
-            print("部分缺失值无法通过行/列均值填补，使用图像整体均值填补")
-            for idx in tqdm(range(n_samples), desc="整体均值填补"):
-                # 获取当前图像的有效值
+            print("Some missing values could not be imputed by row/column mean, using overall image mean imputation.")
+            for idx in tqdm(range(n_samples), desc="Overall Mean Imputation"):
+                # Get valid values for the current image
                 valid_values = data_reshaped[idx][mask_reshaped[idx]]
                 
-                # 如果有有效值，计算整体均值并填补剩余缺失值
+                # If valid values exist, calculate overall mean and impute remaining missing values
                 if len(valid_values) > 0:
                     image_mean = np.mean(valid_values)
-                    # 找出该图像中仍然缺失的位置
+                    # Find remaining missing positions in this image
                     missing_pixels = still_missing[idx]
-                    # 填补缺失值
+                    # Impute missing values
                     data_filled_reshaped[idx][missing_pixels] = image_mean
                 else:
-                    # 如果整个图像都没有有效值，使用所有图像的均值
+                    # If the entire image has no valid values, use the mean of all images
                     all_valid_values = data_reshaped[mask_reshaped]
                     if len(all_valid_values) > 0:
                         global_mean = np.mean(all_valid_values)
                         data_filled_reshaped[idx][missing_pixels] = global_mean
     
-    # 检查是否仍有缺失值
+    # Check if there are still missing values
     still_missing = np.isnan(data_filled_reshaped)
     if np.any(still_missing):
-        print("仍有缺失值，使用全局均值填充")
+        print("Still missing values, using global mean fill.")
         global_mean = np.nanmean(data_reshaped)
         data_filled_reshaped[still_missing] = global_mean
     
-    # 将填补后的数据重新展平
+    # Reshape the imputed data back to original flat format
     data_filled = data_filled_reshaped.reshape(n_samples, n_features)
-    print("数据填补完成，准备构建图...")
+    print("Data imputation completed, preparing to build graph...")
     
     return data_filled, mask
 
 
 def prepare_data_for_imputation_traditional(data, mask=None, labels=None):
     """
-    传统的数据填补方法（不考虑空间结构）
+    Traditional data imputation method (without considering spatial structure).
     """
     if mask is None:
         mask = ~np.isnan(data)
@@ -1272,25 +1271,25 @@ def prepare_data_for_imputation_traditional(data, mask=None, labels=None):
     data_filled = np.copy(data)
     
     if labels is not None and not np.all(np.isnan(labels)):
-        # 按类别填充
-        print("使用按类别均值填充策略（传统方法）")
+        # Impute by category
+        print("Using category-wise mean imputation strategy (traditional method).")
         valid_mask = ~np.isnan(labels)
         unique_labels = np.unique(labels[valid_mask])
         
         for label in unique_labels:
-            # 获取当前类别的样本索引
+            # Get sample indices for the current category
             label_indices = np.where((labels == label) & valid_mask)[0]
             if len(label_indices) == 0:
                 continue
                 
-            # 对当前类别的每个特征计算均值
+            # Calculate mean for each feature in the current category
             for i in range(data.shape[1]):
-                # 获取当前类别中该特征的有效值
+                # Get valid values for this feature in the current category
                 valid_values = data[label_indices, i][mask[label_indices, i]]
                 if len(valid_values) > 0:
-                    # 计算当前类别该特征的均值
+                    # Calculate mean of this feature for the current category
                     feature_mean = np.mean(valid_values)
-                    # 填充当前类别中该特征的缺失值
+                    # Impute missing values for this feature in the current category
                     missing_indices = label_indices[~mask[label_indices, i]]
                     if len(missing_indices) > 0:
                         data_filled[missing_indices, i] = feature_mean
@@ -1298,98 +1297,97 @@ def prepare_data_for_imputation_traditional(data, mask=None, labels=None):
      
         still_missing = ~mask & np.isnan(data_filled)
         if np.any(still_missing):
-            print("部分缺失值无法通过类别均值填充，使用全局均值填充")
-            # 对每个特征计算全局均值
+            print("Some missing values could not be imputed by category mean, using global mean imputation.")
+            # Calculate global mean for each feature
             for i in range(data.shape[1]):
                 if np.any(still_missing[:, i]):
-                    # 计算该特征的全局均值
+                    # Calculate global mean for this feature
                     global_mean = np.nanmean(data[:, i])
-                    # 填充仍然缺失的值
+                    # Impute remaining missing values
                     data_filled[still_missing[:, i], i] = global_mean
     else:
-        # 使用全局均值填充
-        print("使用全局均值填充策略（传统方法）")
+        # Use global mean imputation
+        print("Using global mean imputation strategy (traditional method).")
         mean_values = np.nanmean(data, axis=0)
         for i in range(data.shape[1]):
             data_filled[:, i] = np.where(mask[:, i], data[:, i], mean_values[i])
     
     return data_filled, mask
 
-
 def process_mat_file(file_path, output_dir=None, treat_zeros_as_missing=True, k=5, epochs=200, alpha=0.9, batch_size=1000):
     """
-    处理.mat文件，进行子空间感知的缺失值填补
+    Processes .mat files, performing subspace-aware missing value imputation.
     """
-    # 检查文件是否存在
+    # Check if file exists
     if not os.path.exists(file_path):
-        print(f"错误: 文件 '{file_path}' 不存在")
-        print(f"请确保文件路径正确，可能需要使用绝对路径或正确的相对路径")
+        print(f"Error: File '{file_path}' does not exist.")
+        print(f"Please ensure the file path is correct, you might need to use an absolute path or correct relative path.")
         return None
         
-    # 加载数据
-    print(f"处理文件: {file_path}")
+    # Load data
+    print(f"Processing file: {file_path}")
     mat_data = sio.loadmat(file_path)
     
-    # 检查fea和gnd是否存在
+    # Check if 'fea' and 'gnd' exist
     if 'fea' not in mat_data or 'gnd' not in mat_data:
-        print("错误: 文件中必须包含'fea'和'gnd'字段")
+        print("Error: The file must contain 'fea' and 'gnd' fields.")
         return None
     
-    # 提取数据
+    # Extract data
     fea = mat_data['fea']
     gnd = mat_data['gnd']
     
-    # 处理特征数据(fea)
-    print("\n处理特征数据(fea)...")
-    # 检查数据维度
+    # Process feature data (fea)
+    print("\nProcessing feature data (fea)...")
+    # Check data dimension
     original_shape_fea = fea.shape
     if len(fea.shape) > 2:
-        # 如果是图像数据，展平处理
+        # If it's image data, flatten it
         fea_flat = fea.reshape(original_shape_fea[0], -1)
     else:
         fea_flat = fea
     
-    # 创建掩码
+    # Create mask
     if treat_zeros_as_missing:
         mask_fea = (fea_flat != 0)
     else:
         mask_fea = ~np.isnan(fea_flat)
     
-    # 检查缺失值比例
+    # Check missing value rate
     missing_rate_fea = 1 - np.mean(mask_fea)
-    print(f"特征缺失值比例: {missing_rate_fea:.2%}")
+    print(f"Feature missing value rate: {missing_rate_fea:.2%}")
     
-    # 处理标签数据(gnd)
-    print("\n处理标签数据(gnd)...")
+    # Process label data (gnd)
+    print("\nProcessing label data (gnd)...")
     original_shape_gnd = gnd.shape
     
-    # 将gnd转换为适合处理的形式
+    # Convert gnd to a suitable format for processing
     if len(gnd.shape) == 2 and gnd.shape[1] == 1:
-        # 如果gnd是列向量，转换为一维数组
+        # If gnd is a column vector, convert to a 1D array
         gnd_flat = gnd.flatten()
     else:
         gnd_flat = gnd
     
-    # 创建掩码
+    # Create mask
     if treat_zeros_as_missing:
         mask_gnd = (gnd_flat != 0)
     else:
         mask_gnd = ~np.isnan(gnd_flat)
     
-    # 检查标签中的缺失值
+    # Check for missing values in labels
     missing_rate_gnd = 1 - np.mean(mask_gnd)
-    print(f"标签缺失值比例: {missing_rate_gnd:.2%}")
+    print(f"Label missing value rate: {missing_rate_gnd:.2%}")
     
-    # 先填补标签中的缺失值
+    # Impute missing values in labels first
     if missing_rate_gnd > 0:
-        print("\n先填补标签中的缺失值...")
-        # 简化标签填补过程，不需要特征辅助
+        print("\nImputing missing values in labels first...")
+        # Simplify label imputation process, no need for feature assistance
         imputed_gnd_flat = fill_missing_labels(gnd_flat, mask_gnd)
     else:
         imputed_gnd_flat = gnd_flat
     
-    # 使用填补后的标签进行子空间感知的GNN特征填补
-    print("\n使用子空间感知的GNN进行特征填补...")
+    # Perform subspace-aware GNN feature imputation using the imputed labels
+    print("\nPerforming subspace-aware GNN for feature imputation...")
     imputed_fea_flat = subspace_aware_imputation(
         fea_flat, imputed_gnd_flat, 
         mask=mask_fea, 
@@ -1399,13 +1397,13 @@ def process_mat_file(file_path, output_dir=None, treat_zeros_as_missing=True, k=
         batch_size=batch_size
     )
     
-    # 如果是图像数据，恢复原始形状
+    # If it was image data, restore original shape
     if len(original_shape_fea) > 2:
         imputed_fea = imputed_fea_flat.reshape(original_shape_fea)
     else:
         imputed_fea = imputed_fea_flat
     
-    # 恢复标签的原始形状
+    # Restore label's original shape
     if len(original_shape_gnd) == 2 and original_shape_gnd[1] == 1:
         imputed_gnd = imputed_gnd_flat.reshape(original_shape_gnd)
     else:
@@ -1421,13 +1419,13 @@ def process_mat_file(file_path, output_dir=None, treat_zeros_as_missing=True, k=
     file_name = os.path.basename(file_path)
     base_name, ext = os.path.splitext(file_name)
     
-    # 构建输出文件名
+    # Construct output filename
     if "_subspace_gnn_imputed" not in base_name:
         output_path = os.path.join(output_dir, f"{base_name}_subspace_gnn_imputed{ext}")
     else:
         output_path = os.path.join(output_dir, file_name)
     
-    # 保存填补后的数据
+    # Save imputed data
     output_data = {
         'fea': imputed_fea,
         'gnd': imputed_gnd
@@ -1439,14 +1437,14 @@ def process_mat_file(file_path, output_dir=None, treat_zeros_as_missing=True, k=
             output_data[key] = value
     
     sio.savemat(output_path, output_data)
-    print(f"填补后的数据已保存至: {output_path}")
+    print(f"Imputed data saved to: {output_path}")
     
     return output_path
 
 
 def fill_missing_labels(labels, mask, features=None):
     """
-    填补缺失标签，基于每个类别样本数量相等且相同标签样本连续排列的原理
+    Imputes missing labels, based on the principle that each category has an equal number of samples and same-label samples are arranged contiguously.
     """
     imputed_labels = np.copy(labels)
     missing_indices = np.where(~mask)[0]
@@ -1457,24 +1455,24 @@ def fill_missing_labels(labels, mask, features=None):
     valid_indices = np.where(mask)[0]
     
     if len(valid_indices) == 0:
-        print("警告: 没有有效标签可用于填补")
-        imputed_labels[missing_indices] = 1  # 默认填充为1
+        print("Warning: No valid labels available for imputation.")
+        imputed_labels[missing_indices] = 1  # Default fill with 1
         return imputed_labels
     
-    # 获取有效标签
+    # Get valid labels
     valid_labels = labels[valid_indices]
     unique_labels = np.unique(valid_labels)
     n_classes = len(unique_labels)
     
-    # 计算总样本数
+    # Calculate total number of samples
     n_samples = len(labels)
     
-    # 检查是否符合每个类别样本数量相等的条件
+    # Check if the condition of equal number of samples per category is met
     if n_samples % n_classes == 0:
         samples_per_class = n_samples // n_classes
-        print(f"检测到每个类别的样本数量应为: {samples_per_class}")
+        print(f"Detected expected samples per class: {samples_per_class}")
         
-        # 基于样本位置填补标签
+        # Impute labels based on sample position
         for idx in missing_indices:
            
             class_idx = idx // samples_per_class
@@ -1485,8 +1483,8 @@ def fill_missing_labels(labels, mask, features=None):
                
                 imputed_labels[idx] = unique_labels[-1]
     else:
-        print("警告: 样本总数不能被类别数整除，无法使用基于位置的标签填补")
-        print("使用基于最近有效样本的标签填补方法")
+        print("Warning: Total number of samples is not divisible by the number of classes, cannot use position-based label imputation.")
+        print("Using label imputation based on the nearest valid sample.")
         
  
         for idx in missing_indices:
@@ -1495,48 +1493,48 @@ def fill_missing_labels(labels, mask, features=None):
             nearest_idx = valid_indices[np.argmin(distances)]
             imputed_labels[idx] = labels[nearest_idx]
     
-    # 验证填补结果
+    # Verify imputation results
     filled_labels = imputed_labels[missing_indices]
     unique_filled = np.unique(filled_labels)
-    print(f"填补的标签值: {unique_filled}")
+    print(f"Imputed label values: {unique_filled}")
     
-    # 检查每个类别的样本数量是否平衡
+    # Check if the number of samples per category is balanced
     if n_samples % n_classes == 0:
         for label in unique_labels:
             count = np.sum(imputed_labels == label)
             expected = samples_per_class
             if count != expected:
-                print(f"警告: 标签 {label} 的样本数量为 {count}，期望值为 {expected}")
+                print(f"Warning: Label {label} has {count} samples, expected {expected}.")
     
     return imputed_labels
 
 
 def main():
-    parser = argparse.ArgumentParser(description='使用子空间感知的图神经网络进行缺失值填补')
-    parser.add_argument('--input', type=str, required=True, help='输入.mat文件路径')
-    parser.add_argument('--output_dir', type=str, default='data/datasets', help='输出目录，默认为data/datasets')
-    parser.add_argument('--treat_zeros', action='store_true', help='将0值视为缺失值')
-    parser.add_argument('--k', type=int, default=10, help='KNN图中的近邻数量')
-    parser.add_argument('--epochs', type=int, default=200, help='训练轮数')
-    parser.add_argument('--alpha', type=float, default=0.9, help='子空间内连接的权重系数 (0-1)')
-    parser.add_argument('--batch_size', type=int, default=1000, help='批处理大小，用于分批计算相似度矩阵')
-    parser.add_argument('--no_cuda', action='store_true', help='禁用CUDA加速')
+    parser = argparse.ArgumentParser(description='Missing value imputation using subspace-aware Graph Neural Network.')
+    parser.add_argument('--input', type=str, required=True, help='Input .mat file path.')
+    parser.add_argument('--output_dir', type=str, default='data/datasets', help='Output directory, defaults to data/datasets.')
+    parser.add_argument('--treat_zeros', action='store_true', help='Treat 0 values as missing values.')
+    parser.add_argument('--k', type=int, default=10, help='Number of neighbors in KNN graph.')
+    parser.add_argument('--epochs', type=int, default=200, help='Number of training epochs.')
+    parser.add_argument('--alpha', type=float, default=0.9, help='Weight coefficient for intra-subspace connections (0-1).')
+    parser.add_argument('--batch_size', type=int, default=1000, help='Batch size for calculating similarity matrix in batches.')
+    parser.add_argument('--no_cuda', action='store_true', help='Disable CUDA acceleration.')
     
     args = parser.parse_args()
     
-    # 处理CUDA选项
+    # Handle CUDA option
     if args.no_cuda:
         global device
         device = torch.device('cpu')
-        print("已禁用CUDA，使用CPU")
+        print("CUDA disabled, using CPU.")
     
-    # 打印使用示例
+    # Print usage example
     if not os.path.exists(args.input):
-        print(f"错误: 文件 '{args.input}' 不存在")
-        print("\n使用示例:")
+        print(f"Error: File '{args.input}' does not exist.")
+        print("\nUsage example:")
         print("  python subspace_aware_gnn.py --input data/datasets/COIL100_random_zero.mat --treat_zeros")
         print("  python subspace_aware_gnn.py --input data/datasets/ORL_32x32_random_zero.mat --k 15 --epochs 300 --alpha 0.9")
-        print("\n可用的数据集文件:")
+        print("\nAvailable dataset files:")
         for root, dirs, files in os.walk("data/datasets"):
             for file in files:
                 if file.endswith(".mat"):
@@ -1555,4 +1553,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()
