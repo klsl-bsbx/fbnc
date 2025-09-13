@@ -199,7 +199,7 @@ feature_set_test = FeatureDataset(x, y)
 test_loader = DataLoader(feature_set_test, batch_size=args.bs, shuffle=True, drop_last=False, num_workers=0)
 
 
-#### loss of TCR 
+#### loss of RL 
 warmup_criterion = TotalCodingRate(eps=args.eps)
 
 ### learning opt strategy
@@ -222,7 +222,7 @@ with tqdm.tqdm(total=args.epo) as progress_bar:
         progress_bar.set_description('Epoch: '+str(epoch)+'/'+str(args.epo))
         model.train()
         ### learning loss storage 
-        loss_dict = {'loss_TCR': [], 'loss_Exp': [], 'loss_Block': []}
+        loss_dict = {'loss_RL': [], 'loss_Exp': [], 'loss_Block': []}
 
         for step, (x, y) in enumerate(train_loader):
             x, y = x.float().to(device), y.to(device)
@@ -252,14 +252,14 @@ with tqdm.tqdm(total=args.epo) as progress_bar:
                 
                 if warmup_step <= total_wamup_steps:
                     loss = warmup_criterion(q)
-                    loss_dict['loss_TCR'].append(loss.item())
+                    loss_dict['loss_RL'].append(loss.item())
                 else:
-                    loss_tcr = warmup_criterion(q) # logdet() loss
+                    loss_rl = warmup_criterion(q) # logdet() loss
                     loss_exp = 0.5 * (torch.linalg.norm(q.T - q.T @ Sign_self_coeff.mul(self_coeff) )) ** 2 / args.bs # ||Q-QC||_F loss
                     loss_bl = torch.trace(L.T @ W) / args.bs # r() loss
-                    loss = loss_tcr + args.gamma * loss_exp + args.beta * loss_bl
+                    loss = loss_rl + args.gamma * loss_exp + args.beta * loss_bl
 
-                    loss_dict['loss_TCR'].append(loss_tcr.item())
+                    loss_dict['loss_RL'].append(loss_rl.item())
                     loss_dict['loss_Exp'].append(loss_exp.item())
                     loss_dict['loss_Block'].append(loss_bl.item())
 
@@ -281,10 +281,10 @@ with tqdm.tqdm(total=args.epo) as progress_bar:
                 model = update_pi_from_z(model)
 
             if warmup_step <= total_wamup_steps:
-                progress_bar.set_postfix(tcr_loss="{:5.4f}".format(loss.item()))
+                progress_bar.set_postfix(rl_loss="{:5.4f}".format(loss.item()))
             else:
                 progress_bar.set_postfix(
-                    tcr_loss="{:5.4f}".format(loss_tcr.item()),
+                    rl_loss="{:5.4f}".format(loss_rl.item()),
                     exp_loss="{:5.4f}".format(loss_exp.item()),
                     block_loss="{:5.4f}".format(loss_bl.item()),
                 )
